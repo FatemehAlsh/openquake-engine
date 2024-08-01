@@ -69,7 +69,7 @@ rup_dt = numpy.dtype(
 
 def rup_weight(rup):
     # rup['nsites'] is 0 if the ruptures were generated without a sitecol
-    return math.ceil((rup['nsites'] or 1) / 100)
+    return rup['nsites'] // 100 or 1
 
 # ######################## hcurves_from_gmfs ############################ #
 
@@ -205,14 +205,8 @@ def _event_based(proxies, cmaker, stations, srcfilter, shr,
     se_dt = sig_eps_dt(cmaker.oq.imtls)
     for proxy in proxies:
         t0 = time.time()
-        with fmon:
-            if proxy['mag'] < cmaker.min_mag:
-                continue
-            try:
-                computer = get_computer(cmaker, proxy, srcfilter, *stations)
-            except FarAwayRupture:
-                # skip this rupture
-                continue
+        computer = proxy.computer
+        del proxy.computer
         if stations and stations[0] is not None:  # conditioned GMFs
             assert cmaker.scenario
             with shr['mea'] as mea, shr['tau'] as tau, shr['phi'] as phi:
@@ -257,7 +251,19 @@ def event_based(proxies, cmaker, stations, dstore, monitor):
         dset = dstore['rupgeoms']
         for proxy in proxies:
             proxy.geom = dset[proxy['geom_id']]
-    for block in block_splitter(proxies, 20_000, rup_weight):
+
+    def weight(proxy):
+        with fmon:
+            if proxy['mag'] < cmaker.min_mag:
+                return 0
+            try:
+                proxy.computer = get_computer(cmaker, proxy, srcfilter, *stations)
+            except FarAwayRupture:
+                return 0
+            w = len(proxy.computer.ctx) // 100 or 1
+            return w
+
+    for block in block_splitter(proxies, 20_000, weight):
         yield _event_based(block, cmaker, stations, srcfilter,
                            monitor.shared, fmon, cmon, umon, mmon)
 
