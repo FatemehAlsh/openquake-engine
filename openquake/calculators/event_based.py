@@ -206,7 +206,7 @@ def _event_based(proxies, cmaker, stations, srcfilter, shr,
     for proxy in proxies:
         t0 = time.time()
         computer = proxy.computer
-        del proxy.computer
+        del proxy.computer  # save memory
         if stations and stations[0] is not None:  # conditioned GMFs
             assert cmaker.scenario
             with shr['mea'] as mea, shr['tau'] as tau, shr['phi'] as phi:
