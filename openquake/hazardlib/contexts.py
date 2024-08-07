@@ -19,6 +19,7 @@
 import abc
 import copy
 import time
+import math
 import logging
 import warnings
 import itertools
@@ -37,7 +38,7 @@ from openquake.baselib.performance import Monitor, split_array, kround0
 from openquake.baselib.python3compat import decode
 from openquake.hazardlib import valid, imt as imt_module
 from openquake.hazardlib.const import StdDev, OK_COMPONENTS
-from openquake.hazardlib.tom import FatedTOM, NegativeBinomialTOM, PoissonTOM
+from openquake.hazardlib.tom import FatedTOM, NegativeBinomialTOM, PoissonTOM, get_pnes
 from openquake.hazardlib.stats import ndtr
 from openquake.hazardlib.site import SiteCollection, site_param_dt
 from openquake.hazardlib.calc.filters import (
@@ -1381,6 +1382,34 @@ def print_finite_size(rups):
     print('total finite size ruptures = ', sum(c.values()))
 
 
+def update_fast(pmap, cm, ctxs, tom):
+    """
+    :param pmap: probability map to update
+    :param ctxs: a list of context arrays with 0 or 1 element
+    """
+    if isinstance(tom, FatedTOM):  # case_35
+        itime = 0.
+    else:
+        itime = tom.time_span
+    for ctx in ctxs:
+        for poes, ctxt, invs in cm.gen_poes(ctx):
+            with cm.pne_mon:
+                rates = ctxt.occurrence_rate
+                sidxs = pmap.sidx[ctxt.sids]
+                for j in range(pmap.shape[-1]):  # G indices
+                    arr = pmap.array[:, :, j]
+                    levels = range(arr.shape[1])
+                    for i, rate, probs, sidx in zip(invs, rates, ctxt.probs_occur, sidxs):
+                        if itime == 0:  # FatedTOM
+                            arr[sidx] *= 1. - poes[i, :, j]
+                        elif len(probs) == 0:
+                            # looping is faster than building arrays
+                            for lvl in levels:
+                                arr[sidx, lvl] *= math.exp(-rate * poes[i, lvl, j] * itime)
+                        else:
+                            arr[sidx] *= get_pnes(rate, probs, poes[i, :, j], itime)  # shape L
+
+
 class PmapMaker(object):
     """
     A class to compute the PoEs from a given source
@@ -1465,12 +1494,12 @@ class PmapMaker(object):
                 totlen += len(ctx)
                 allctxs.append(ctx)
                 if ctxlen > self.maxsize:
-                    cm.update_indep(pmap, concat(allctxs), tom)
+                    update_fast(pmap, cm, concat(allctxs), tom)
                     allctxs.clear()
                     ctxlen = 0
         if allctxs:
             # all sources have the same tom by construction
-            cm.update_indep(pmap, concat(allctxs), tom)
+            update_fast(pmap, cm, concat(allctxs), tom)
             allctxs.clear()
         pmap.array[:] = 1. - pmap.array
         dt = time.time() - t0
