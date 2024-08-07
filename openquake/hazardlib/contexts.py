@@ -1382,32 +1382,31 @@ def print_finite_size(rups):
     print('total finite size ruptures = ', sum(c.values()))
 
 
-def update_fast(pmap, cm, ctxs, tom):
+def update_fast(pmap, cm, ctx, tom):
     """
     :param pmap: probability map to update
-    :param ctxs: a list of context arrays with 0 or 1 element
+    :param ctx: a context array
     """
     if isinstance(tom, FatedTOM):  # case_35
         itime = 0.
     else:
         itime = tom.time_span
-    for ctx in ctxs:
-        for poes, ctxt, invs in cm.gen_poes(ctx):
-            with cm.pne_mon:
-                rates = ctxt.occurrence_rate
-                sidxs = pmap.sidx[ctxt.sids]
-                for j in range(pmap.shape[-1]):  # G indices
-                    arr = pmap.array[:, :, j]
-                    levels = range(arr.shape[1])
-                    for i, rate, probs, sidx in zip(invs, rates, ctxt.probs_occur, sidxs):
-                        if itime == 0:  # FatedTOM
-                            arr[sidx] *= 1. - poes[i, :, j]
-                        elif len(probs) == 0:
-                            # looping is faster than building arrays
-                            for lvl in levels:
-                                arr[sidx, lvl] *= math.exp(-rate * poes[i, lvl, j] * itime)
-                        else:
-                            arr[sidx] *= get_pnes(rate, probs, poes[i, :, j], itime)  # shape L
+    for poes, ctxt, invs in cm.gen_poes(ctx):
+        with cm.pne_mon:
+            rates = ctxt.occurrence_rate
+            sidxs = pmap.sidx[ctxt.sids]
+            for j in range(pmap.shape[-1]):  # G indices
+                arr = pmap.array[:, :, j]
+                levels = range(arr.shape[1])
+                for i, rate, probs, sidx in zip(invs, rates, ctxt.probs_occur, sidxs):
+                    if itime == 0:  # FatedTOM
+                        arr[sidx] *= 1. - poes[i, :, j]
+                    elif len(probs) == 0:
+                        # looping is faster than building arrays
+                        for lvl in levels:
+                            arr[sidx, lvl] *= math.exp(-rate * poes[i, lvl, j] * itime)
+                    else:
+                        arr[sidx] *= get_pnes(rate, probs, poes[i, :, j], itime)  # shape L
 
 
 class PmapMaker(object):
@@ -1494,12 +1493,14 @@ class PmapMaker(object):
                 totlen += len(ctx)
                 allctxs.append(ctx)
                 if ctxlen > self.maxsize:
-                    update_fast(pmap, cm, concat(allctxs), tom)
+                    for ctx in concat(allctxs):
+                        update_fast(pmap, cm, ctx, tom)
                     allctxs.clear()
                     ctxlen = 0
         if allctxs:
             # all sources have the same tom by construction
-            update_fast(pmap, cm, concat(allctxs), tom)
+            for ctx in concat(allctxs):
+                update_fast(pmap, cm, ctx, tom)
             allctxs.clear()
         pmap.array[:] = 1. - pmap.array
         dt = time.time() - t0
