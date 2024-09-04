@@ -245,7 +245,14 @@ def threadpool_submit(self, func, args, monitor):
 
 @submit.add('zmq', 'slurm')
 def zmq_submit(self, func, args, monitor):
-    idx = self.task_no % len(host_cores)
+    nodes = len(host_cores)
+    hosts, cores = [], 0
+    for line in host_cores:
+        h, c = line.split()
+        hosts.append(h)
+        cores += int(c)
+    num_cores = cores // nodes
+    idx = (self.task_no // num_cores) % nodes
     host = host_cores[idx].split()[0]
     port = int(config.zworkers.ctrl_port)
     dest = 'tcp://%s:%d' % (host, port)
