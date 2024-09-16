@@ -359,6 +359,7 @@ def run_jobs(jobctxs, concurrent_jobs=None, nodes=1, sbatch=False):
     if concurrent_jobs is None:
         # // 10 is chosen so that the core occupation in cole is decent
         concurrent_jobs = parallel.Starmap.CT // 10 or 1
+        print(f'Using {concurrent_jobs=}')
 
     job_id = jobctxs[0].calc_id
     hc_id = jobctxs[-1].params['hazard_calculation_id']
@@ -400,9 +401,9 @@ def run_jobs(jobctxs, concurrent_jobs=None, nodes=1, sbatch=False):
                 pickle.dump(jobctxs, f)
             w.WorkerMaster(job_id).send_jobs()
             print('oq engine --show-log %d to see the progress' % job_id)
-        elif len(jobctxs) > 1 and jobctxs[0].multi and dist != 'no':
-            parallel.multispawn(
-                run_calc, [(ctx,) for ctx in jobctxs], concurrent_jobs)
+        elif dist == 'zmq' and len(jobctxs) > 1 and jobctxs[0].multi:
+            with general.mp.Pool(concurrent_jobs) as p:
+                p.map(run_calc, jobctxs)
         else:
             for jobctx in jobctxs:
                 run_calc(jobctx)
