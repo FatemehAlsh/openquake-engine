@@ -319,23 +319,23 @@ def create_jobs(job_inis, log_level=logging.INFO, log_file=None,
     return jobs
 
 
-def start_workers(job_id, dist, nodes):
+def start_workers(job_ids, dist, nodes):
     """
     Start the workers via the DbServer or via slurm
     """
     if dist == 'zmq':
         print('Starting the workers %s' % config.zworkers.host_cores)
-        logs.dbcmd('workers_start', config.zworkers)  # start the workers
+        logs.dbcmd('zmq_start', config.zworkers)  # start the workers
     elif dist == 'slurm':
-        slurm.start_workers(job_id, nodes)
-        slurm.wait_workers(job_id, nodes)
+        slurm.start_workers(job_ids, nodes)
+        slurm.wait_workers(job_ids, nodes)
 
 
-def stop_workers(job_id):
+def stop_workers(job_ids):
     """
     Stop the workers spawned by the current job via the WorkerMaster
     """
-    print(w.WorkerMaster(job_id).stop())
+    print(w.WorkerMaster(job_ids).stop())
 
     
 def run_jobs(jobctxs, concurrent_jobs=None, nodes=1, sbatch=False):
@@ -361,7 +361,7 @@ def run_jobs(jobctxs, concurrent_jobs=None, nodes=1, sbatch=False):
         concurrent_jobs = parallel.Starmap.CT // 10 or 1
         print(f'Using {concurrent_jobs=}')
 
-    job_id = jobctxs[0].calc_id
+    job_ids = [j.calc_id for j in jobctxs]
     hc_id = jobctxs[-1].params['hazard_calculation_id']
     if hc_id:
         job = logs.dbcmd('get_job', hc_id)
@@ -391,16 +391,17 @@ def run_jobs(jobctxs, concurrent_jobs=None, nodes=1, sbatch=False):
                'start_time': datetime.utcnow()}
         logs.dbcmd('update_job', job.calc_id, dic)
     try:
-        if dist in ('zmq', 'slurm') and  w.WorkerMaster(job_id).status() == []:
-            start_workers(job_id, dist, nodes)
+        if dist in ('zmq', 'slurm') and  w.WorkerMaster(job_ids).status() == []:
+            start_workers(job_ids, dist, nodes)
 
         # run the jobs sequentially or in parallel, with slurm or without
         if dist == 'slurm' and sbatch:
-            scratch_dir = parallel.scratch_dir(job_id)
-            with open(os.path.join(scratch_dir, 'jobs.pik'), 'wb') as f:
-                pickle.dump(jobctxs, f)
-            w.WorkerMaster(job_id).send_jobs()
-            print('oq engine --show-log %d to see the progress' % job_id)
+            for job in jobctxs:
+                scratch_dir = parallel.scratch_dir(job.calc_id)
+                with open(os.path.join(scratch_dir, 'job.pik'), 'wb') as f:
+                    pickle.dump(job, f)
+            w.WorkerMaster(job_ids).send_jobs()
+            print('oq engine --show-log %d to see the progress' % job_ids[0])
         elif dist == 'zmq' and len(jobctxs) > 1 and jobctxs[0].multi:
             with general.mp.Pool(concurrent_jobs) as p:
                 p.map(run_calc, jobctxs)
@@ -416,7 +417,7 @@ def run_jobs(jobctxs, concurrent_jobs=None, nodes=1, sbatch=False):
         raise
     finally:
         if dist == 'zmq' or (dist == 'slurm' and not sbatch):
-            stop_workers(job_id)
+            stop_workers(job_ids)
     return jobctxs
 
 
@@ -488,4 +489,4 @@ if __name__ == '__main__':
             logs.dbcmd("set_status", jid, 'failed')
         raise
     finally:
-        stop_workers(jobctxs[0].calc_id)
+        stop_workers([j.calc_id for j in jobctxs])

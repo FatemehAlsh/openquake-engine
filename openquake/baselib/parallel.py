@@ -218,8 +218,13 @@ host_cores = config.zworkers.host_cores.split(',')
 
 def scratch_dir(job_id):
     """
-    :returns: scratch directory associated to the given job_id
+    :returns: scratch directory associated to the given job_id(s)
     """
+    if isinstance(job_id, list):
+        if not job_id:
+            raise ValueError('Empty list of job IDs!')
+        else:
+            job_id = '-'.join([job_id[0], job_id[-1]])
     tmp = config.directory.custom_tmp or tempfile.gettempdir()
     dirname = os.path.join(tmp, f'calc_{job_id}')
     try:
@@ -227,6 +232,7 @@ def scratch_dir(job_id):
     except FileExistsError:  # already created
         pass
     return dirname
+
 
 @submit.add('no')
 def no_submit(self, func, args, monitor):
@@ -1116,8 +1122,9 @@ def multispawn(func, allargs, nprocs=Starmap.num_cores, logfinish=True):
             n += 1
 
 
-if oq_distribute() == 'slurm':
+dist = oq_distribute()
+if dist in ('slurm', 'zmq'):
     if not config.directory.custom_tmp:
-        raise ValueError('oq_distribute=slurm requires setting custom_tmp')
-    if not hasattr(config.distribution, 'num_cores'):
-        raise ValueError('oq_distribute=slurm requires setting num_cores')
+        raise ValueError(f'oq_distribute={dist} requires setting custom_tmp')
+    #if not hasattr(config.distribution, 'num_cores'):
+    #    raise ValueError(f'oq_distribute={dist} requires setting num_cores')

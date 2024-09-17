@@ -40,72 +40,31 @@ def init_workers():
     setproctitle('oq-zworker')
 
 
-def get_zworkers(job_id):
+def get_zworkers(dirname):
     """
+    :param dirname: location of the hostcores file
     :returns: DotDict str->str with keys ctrl_port and host_cores
     """
-    dist = parallel.oq_distribute()
-    if dist == 'zmq':
-        return config.zworkers
-    elif dist == 'slurm':
-        calc_dir = parallel.scratch_dir(job_id)
-        try:
-            with open(os.path.join(calc_dir, 'hostcores')) as f:
-                hostcores = f.read()
-        except FileNotFoundError:
-            hostcores = ''
-        return DotDict(ctrl_port=config.zworkers.ctrl_port,
-                       host_cores=hostcores.replace('\n', ',').rstrip(','))
-    return {}
-
-
-def ssh_args(zworkers):
-    """
-    :yields: triples (hostIP, num_cores, [ssh remote python command])
-    """
-    user = getpass.getuser()
-    if zworkers.host_cores.strip():
-        for hostcores in zworkers.host_cores.split(','):
-            host, cores = hostcores.split()
-            if host == '127.0.0.1':  # localhost
-                yield host, cores, [sys.executable]
-            else:
-                yield host, cores, [
-                    'ssh', '-f', '-T', user + '@' + host, sys.executable]
-
+    try:
+        with open(os.path.join(dirname, 'hostcores')) as f:
+            hostcores = f.read()
+    except FileNotFoundError:
+        hostcores = ''
+    return DotDict(ctrl_port=config.zworkers.ctrl_port,
+                   host_cores=hostcores.replace('\n', ',').rstrip(','))
 
 class WorkerMaster(object):
     """
-    :param zworkers: dictionary with keys host_keys and ctrl_port
+    :param dirname:
+        a string like "calc_42-42" specifying the workerpool directory
     """
-    def __init__(self, zworkers, receiver_ports=None):
-        if isinstance(zworkers, int):  # passed job_id
-            self.zworkers = get_zworkers(zworkers)
-        else:  # passed dictionary of strings
-            self.zworkers = zworkers
-        # NB: receiver_ports is not used but needed for compliance
+    def __init__(self, dirname):
+        self.zworkers = get_zworkers(dirname)
         self.ctrl_port = int(self.zworkers.ctrl_port)
         self.host_cores = (
             [hc.split() for hc in self.zworkers.host_cores.split(',')]
             if self.zworkers.host_cores else [])
         self.popens = []
-
-    def start(self):
-        """
-        Start multiple workerpools on remote servers via ssh and/or a single
-        workerpool on localhost.
-        """
-        starting = []
-        for host, cores, args in ssh_args(self.zworkers):
-            if general.socket_ready((host, self.ctrl_port)):
-                print('%s:%s already running' % (host, self.ctrl_port))
-                continue
-            args += ['-m', 'openquake.baselib.workerpool', cores]
-            if host != '127.0.0.1':
-                print('%s: if it hangs, check the ssh keys' % ' '.join(args))
-            self.popens.append(subprocess.Popen(args))
-            starting.append(host)
-        return 'starting %s' % starting
 
     def stop(self):
         """
@@ -128,19 +87,6 @@ class WorkerMaster(object):
             popen.wait()
         self.popens = []
         return 'stopped %s' % stopped
-
-    def kill(self):
-        """
-        Send a "killall" command to all worker pools to cleanup everything
-        in case of hard out of memory situations
-        """
-        killed = []
-        for host, cores, args in ssh_args(self.zworkers):
-            args = args[:-1] + ['killall', '-r', 'oq-zworker|multiprocessing']
-            print(' '.join(args))
-            subprocess.run(args)
-            killed.append(host)
-        return 'killed %s' % killed
 
     def status(self):
         """
@@ -242,7 +188,7 @@ def debug_task(msg, mon):
 
 
 def call(func, args, taskno, mon, executing):
-    fname = os.path.join(executing, str(taskno))
+    fname = os.path.join(executing, '%s-%s' % (mon.calc_id, taskno))
     # NB: very hackish way of keeping track of the running tasks,
     # used in get_executing, could litter the file system
     open(fname, 'w').close()
@@ -266,9 +212,8 @@ class WorkerPool(object):
     :param ctrl_url: zmq address of the control socket
     :param num_workers: the number of workers (or -1)
     """
-    def __init__(self, ctrl_port=1909, num_workers=-1, job_id=0):
-        self.job_id = job_id
-        self.ctrl_port = ctrl_port
+    def __init__(self, num_workers=-1):
+        self.ctrl_port = config.zworkers.ctrl_port
         if num_workers == -1:
             try:
                 self.num_workers = len(psutil.Process().cpu_affinity())
@@ -276,8 +221,7 @@ class WorkerPool(object):
                 self.num_workers = psutil.cpu_count()
         else:
             self.num_workers = num_workers
-        self.scratch = parallel.scratch_dir(job_id)
-        self.executing = tempfile.mkdtemp(dir=self.scratch)
+        self.executing = tempfile.mkdtemp(dir=config.directory.custom_tmp)
         try:
             os.mkdir(self.executing)
         except FileExistsError:  # already created by another WorkerPool
@@ -331,7 +275,7 @@ class WorkerPool(object):
                         pik = os.path.join(self.scratch, 'jobs.pik')
                         lst = ['python', '-m', 'openquake.engine.engine', pik]
                         subprocess.Popen(lst)
-                        ctrlsock.send("started %d" % self.job_id)
+                        ctrlsock.send("started %s" % self.job_ids)
                     elif cmd == 'memory_gb':
                         ctrlsock.send(performance.memory_gb(pids))
                     elif isinstance(cmd, tuple):
@@ -361,7 +305,7 @@ def workerpool(num_workers: int=-1, job_id: int=0):
     Start a workerpool with the given number of workers.
     """
     # NB: unexpected errors will appear in the DbServer log
-    wpool = WorkerPool(int(config.zworkers.ctrl_port), num_workers, job_id)
+    wpool = WorkerPool(num_workers, job_id)
     try:
         wpool.start()
     finally:
