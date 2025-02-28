@@ -388,7 +388,7 @@ def usgs_stations_to_oq_format(stations, exclude_imts=(), seismic_only=False):
                 imts.append(col)
     # Identify relevant columns
     cols = ['STATION_ID', 'STATION_NAME', 'LONGITUDE', 'LATITUDE',
-            'STATION_TYPE', 'VS30'] + imts
+            'STATION_TYPE', 'DISTANCE', 'VS30'] + imts
     df = stations[cols].copy()
     # Add missing columns
     df.loc[:, 'VS30_TYPE'] = 'inferred'
@@ -401,9 +401,8 @@ def usgs_stations_to_oq_format(stations, exclude_imts=(), seismic_only=False):
     df.loc[:, adj_cols] = round(df.loc[:, adj_cols].
                                 apply(pd.to_numeric, errors='coerce') / 100, 6)
     if seismic_only:
-        df = df.loc[df.STATION_TYPE == 'seismic']
-    df_non_null = df.dropna()
-    return df_non_null
+        df = df.loc[df.STATION_TYPE == 'seismic'].dropna()
+    return df
 
 
 def _get_preferred_item(items):
