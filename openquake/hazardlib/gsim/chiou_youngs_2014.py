@@ -65,7 +65,10 @@ def _get_centered_z1pt0(region, ctx):
     #: California and non-Japan regions
     mean_z1pt0 = (-7.15 / 4.) * np.log(((ctx.vs30) ** 4. + 570.94 ** 4.)
                                        / (1360 ** 4. + 570.94 ** 4.))
-    return ctx.z1pt0 - np.exp(mean_z1pt0)
+    try:
+        return ctx.z1pt0 - np.exp(mean_z1pt0)
+    except AttributeError:
+        return np.zeros_like(ctx.vs30)
 
 
 def _get_centered_ztor(ctx):
@@ -171,7 +174,10 @@ def _get_basin_term(C, ctx, region, imt, usgs_bs=False, cy=False):
     dz1pt0 = _get_centered_z1pt0(region, ctx)
 
     # for Z1.0 = 0.0 no deep soil correction is applied
-    dz1pt0[ctx.z1pt0 <= 0.0] = 0.0
+    if not hasattr(ctx, 'z1pt0'):
+        dz1pt0 = np.zeros_like(dz1pt0)
+    else:
+        dz1pt0[ctx.z1pt0 <= 0.0] = 0.0
     if region == "JPN":
         return C["phi5jp"] * (1.0 - np.exp(-dz1pt0 / CONSTANTS["phi6jp"]))
 
@@ -635,7 +641,7 @@ class ChiouYoungs2014(GMPE):
 
     #: Required site parameters are Vs30, Vs30 measured flag
     #: and Z1.0.
-    REQUIRES_SITES_PARAMETERS = {'vs30', 'vs30measured', 'z1pt0'}
+    REQUIRES_SITES_PARAMETERS = {'vs30', 'vs30measured'}
 
     #: Required rupture parameters are magnitude, rake,
     #: dip and ztor.

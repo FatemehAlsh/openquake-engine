@@ -268,7 +268,7 @@ def _get_basin_term(C, ctx, region, imt, usgs_bs=False, cy=False, v1180=None):
 
     if v1180 is None:
         vs30 = ctx.vs30
-        z1pt0 = ctx.z1pt0
+        z1pt0 = ctx.z1pt0 if 'z1pt0' in ctx.dtype.names else np.ones_like(ctx.vs30) * -1
     else:
         vs30 = v1180
         # fake Z1.0 - Since negative it will be replaced by the default Z1.0
@@ -490,7 +490,7 @@ class AbrahamsonEtAl2014(GMPE):
 
     #: Required site parameters are Vs30 and Z1.0, see table 2, page 1031
     #: Unit of measure for Z1.0 is [m]
-    REQUIRES_SITES_PARAMETERS = {'vs30', 'z1pt0', 'vs30measured'}
+    REQUIRES_SITES_PARAMETERS = {'vs30', 'vs30measured'}
 
     #: Required rupture parameters are magnitude, rake, dip, ztor, and width
     #: (see table 2, page 1031)

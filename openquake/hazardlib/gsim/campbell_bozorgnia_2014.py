@@ -121,7 +121,7 @@ def _get_basin_term(C, ctx, region, imt, SJ, a1100,
     z_ref_term = _basin_term(C, imt, z_ref, SJ, False)
 
     # Get basin term
-    if isinstance(a1100, np.ndarray): # Site model defined
+    if isinstance(a1100, np.ndarray) and hasattr(ctx, 'z2pt5'):  # Site model defined
         z2pt5 = ctx.z2pt5
     else:
         z2pt5 = z_ref
@@ -456,7 +456,7 @@ class CampbellBozorgnia2014(GMPE):
 
     #: Required site parameters are Vs30, Vs30 type (measured or inferred),
     #: and depth (km) to the 2.5 km/s shear wave velocity layer (z2pt5)
-    REQUIRES_SITES_PARAMETERS = {'vs30', 'z2pt5'}
+    REQUIRES_SITES_PARAMETERS = {'vs30'}
 
     #: Required rupture parameters are magnitude, rake, dip, ztor, rupture
     #: width and hypocentral depth
