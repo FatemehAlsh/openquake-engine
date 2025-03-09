@@ -46,6 +46,7 @@ def adjust_limits(x_min, x_max, y_min, y_max, padding=0.5):
     ylim = y_center - max_range / 2, y_center + max_range / 2
     return xlim, ylim
 
+
 def add_borders(ax, read_df=readinput.read_countries_df, buffer=0, alpha=0.1):
     plt = import_plt()
     polys = read_df(buffer)['geom']
@@ -235,8 +236,11 @@ def plot_rupture(rup, backend=None, figsize=(10, 10),
         import matplotlib
         matplotlib.use(backend)
     _fig, ax = plt.subplots(figsize=figsize)
-    ax.set_title(
-        f"width={rup.surface.get_width():.4f}, area={rup.surface.get_area():.4f}")
+    title = f"width={rup.surface.get_width():.4f}"
+    if hasattr(rup.surface, 'length'):
+        title += f", length={rup.surface.length:.4f}"
+    title += f", area={rup.surface.get_area():.4f}"
+    ax.set_title(title)
     ax.set_aspect('equal')
     ax.grid(True)
     ax, min_x, min_y, max_x, max_y = add_rupture(ax, rup)

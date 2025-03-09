@@ -28,6 +28,7 @@ from openquake.commonlib.calc import get_close_mosaic_models
 from openquake.hazardlib.shakemap.parsers import get_rup_dic
 from openquake.qa_tests_data import mosaic
 from openquake.hazardlib.geo.utils import SiteAssociationError
+from openquake.hazardlib.scalerel import get_available_magnitude_scalerel
 
 MOSAIC_DIR = config.directory.mosaic_dir or os.path.dirname(mosaic.__file__)
 
@@ -46,6 +47,7 @@ class AristotleParam:
     local_timestamp: str = None
     rupture_file: str = None
     station_data_file: str = None
+    mmi_file: str = None
     maximum_distance_stations: float = None
 
     def get_oqparams(self, usgs_id, mosaic_models, trts, use_shakemap):
@@ -60,6 +62,8 @@ class AristotleParam:
             inputs['rupture_model'] = self.rupture_file
         if self.station_data_file:
             inputs['station_data'] = self.station_data_file
+        if self.mmi_file:
+            inputs['mmi'] = self.mmi_file
         if not self.mosaic_model:
             self.mosaic_model = mosaic_models[0]
             if len(mosaic_models) > 1:
@@ -106,7 +110,7 @@ class AristotleParam:
         return params
 
 
-ARISTOTLE_FORM_LABELS = {
+IMPACT_FORM_LABELS = {
     'usgs_id': 'Rupture identifier',
     'rupture_from_usgs': 'Rupture from USGS',
     'rupture_file': 'Rupture model XML',
@@ -135,7 +139,7 @@ ARISTOTLE_FORM_LABELS = {
     'msr': 'Magnitude scaling relationship',
 }
 
-ARISTOTLE_FORM_PLACEHOLDERS = {
+IMPACT_FORM_PLACEHOLDERS = {
     'usgs_id': 'USGS ID or custom',
     'rupture_from_usgs': '',
     'rupture_file': 'Rupture model XML',
@@ -163,6 +167,38 @@ ARISTOTLE_FORM_PLACEHOLDERS = {
     'msr': '',
 }
 
+IMPACT_FORM_DEFAULTS = {
+    'usgs_id': '',
+    'rupture_from_usgs': '',
+    'rupture_file': '',
+    'lon': '',
+    'lat': '',
+    'dep': '',
+    'mag': '',
+    'aspect_ratio': '2',
+    'rake': '',
+    'local_timestamp': '',
+    'time_event': 'day',
+    'dip': '90',
+    'strike': '0',
+    'maximum_distance': '200',
+    'truncation_level': '3',
+    'number_of_ground_motion_fields': '100',
+    'asset_hazard_distance': '15',
+    'ses_seed': '42',
+    'station_data_file_from_usgs': '',
+    'station_data_file': '',
+    'maximum_distance_stations': '',
+    'msr': 'WC1994',
+    'rupture_from_usgs_loaded': '',
+    'rupture_file_input': '',
+    'station_data_file_input': '',
+    'station_data_file_loaded': '',
+}
+
+
+msr_choices = [msr.__class__.__name__ for msr in get_available_magnitude_scalerel()]
+
 validators = {
     'approach': valid.Choice('use_shakemap_from_usgs',
                              'use_pnt_rup_from_usgs',
@@ -175,7 +211,7 @@ validators = {
     'lat': valid.latitude,
     'dep': valid.positivefloat,
     'mag': valid.positivefloat,
-    'msr': valid.utf8,
+    'msr': valid.Choice(*msr_choices),
     'aspect_ratio': valid.positivefloat,
     'rake': valid.rake_range,
     'dip': valid.dip_range,
@@ -206,15 +242,15 @@ def _validate(POST):
         try:
             value = validation_func(POST.get(field))
         except Exception as exc:
-            blankable = ['dip', 'strike', 'msr',
-                         'maximum_distance_stations', 'local_timestamp']
+            blankable = ['dip', 'strike', 'maximum_distance_stations',
+                         'local_timestamp']
             if field in blankable and POST.get(field) == '':
                 if field in dic:
                     dic[field] = None
                 else:
                     params[field] = None
                 continue
-            validation_errs[ARISTOTLE_FORM_LABELS[field]] = str(exc)
+            validation_errs[IMPACT_FORM_LABELS[field]] = str(exc)
             invalid_inputs.append(field)
             continue
         if field in dic:
@@ -304,6 +340,7 @@ def impact_validate(POST, user, rupture_file=None, station_data_file=None,
     if len(params) > 1:  # called by impact_run
         params['rupture_dict'] = rupdic
         params['station_data_file'] = rupdic['station_data_file']
+        params['mmi_file'] = rupdic.get('mmi_file')
         with monitor('get_oqparams'):
             ap = AristotleParam(**params)
             try:

@@ -893,6 +893,36 @@ def extract_aggrisk_tags(dstore, what):
     return df
 
 
+@extract.add('mmi_tags')
+def extract_mmi_tags(dstore, what):
+    """
+    Aggregates mmi by tag. Use it as /extract/mmi_tags?
+    """
+    oq = dstore['oqparam']
+    if len(oq.aggregate_by) > 1:  # i.e. [['ID_0'], ['OCCUPANCY']]
+        # see impact_test.py
+        aggby = [','.join(a[0] for a in oq.aggregate_by)]
+    else:  # i.e. [['ID_0', 'OCCUPANCY']]
+        # see event_based_risk_test/case_1
+        [aggby] = oq.aggregate_by
+    keys = numpy.array([line.decode('utf8').split('\t')
+                        for line in dstore['agg_keys'][:]])
+    values = dstore['mmi_tags']
+    acc = general.AccumDict(accum=[])
+    K = len(keys)
+    ok = numpy.zeros(K, bool)
+    for agg_id in range(K):
+        for agg_key, key in zip(aggby, keys[agg_id]):
+            acc[agg_key].append(key)
+        for mmi in list(values):
+            array = values[mmi][agg_id]  # structured array with loss types
+            for lt in array.dtype.names:
+                acc[f'{lt}_{mmi}'].append(array[lt])
+                ok[agg_id] += array[lt]
+    df = pandas.DataFrame(acc)[ok]
+    return df
+
+
 @extract.add('agg_losses')
 def extract_agg_losses(dstore, what):
     """
@@ -1019,11 +1049,26 @@ def extract_losses_by_asset(dstore, what):
         yield 'rlz-000', data
 
 
+@extract.add('losses_by_site')
+def extract_losses_by_site(dstore, what):
+    """
+    :returns: a DataFrame (lon, lat, number, structural, ...)
+    """
+    sitecol = dstore['sitecol']
+    dic = {'lon': F32(sitecol.lons), 'lat': F32(sitecol.lats)}
+    array = dstore['assetcol/array'][:][['site_id', 'lon', 'lat']]
+    grp = dstore.getitem('avg_losses-stats')
+    for loss_type in grp:
+        losses = grp[loss_type][:, 0]
+        dic[loss_type] = F32(general.fast_agg(array['site_id'], losses))
+    return pandas.DataFrame(dic)
+
+
 def _gmf(df, num_sites, imts, sec_imts):
     # convert data into the composite array expected by QGIS
     gmfa = numpy.zeros(num_sites, [(imt, F32) for imt in imts + sec_imts])
-    for m, imt in enumerate(imts + sec_imts):
-        gmfa[imt][U32(df.sid)] = df[f'gmv_{m}'] if imt in imts else df[imt]
+    for imt in imts + sec_imts:
+        gmfa[imt][U32(df.sid)] = df[imt]
     return gmfa
 
 
@@ -1039,9 +1084,8 @@ def extract_gmf_scenario(dstore, what):
     eids = dstore['gmf_data/eid'][:]
     rlzs = dstore['events']['rlz_id']
     ok = rlzs[eids] == rlz_id
-    m = list(oq.imtls).index(imt)
     eids = eids[ok]
-    gmvs = dstore[f'gmf_data/gmv_{m}'][ok]
+    gmvs = dstore[f'gmf_data/{imt}'][ok]
     sids = dstore['gmf_data/sid'][ok]
     try:
         N = len(dstore['complete'])
@@ -1068,18 +1112,21 @@ def extract_gmf_npz(dstore, what):
         complete = dstore['sitecol']
     sites = get_sites(complete)
     n = len(sites)
+    imt_list = dstore['gmf_data'].attrs['imts'].split()
+    # rename old (version <= 3.23) column names
+    rename_dic = {f'gmv_{i}': imt for i, imt in enumerate(imt_list)}
     try:
-        df = dstore.read_df('gmf_data', 'eid').loc[eid]
+        df = dstore.read_df('gmf_data', 'eid').rename(columns=rename_dic)
     except KeyError:
         # zero GMF
         yield 'rlz-%03d' % rlzi, []
     else:
         prim_imts = list(oq.get_primary_imtls())
-        gmfa = _gmf(df, n, prim_imts, oq.sec_imts)
+        gmfa = _gmf(df[df.index == eid], n, prim_imts, oq.sec_imts)
         yield 'rlz-%03d' % rlzi, util.compose_arrays(sites, gmfa)
 
 
-# extract the relevant GMFs as an npz file with fields eid, sid, gmv_
+# extract the relevant GMFs as an npz file with fields eid, sid, imt...
 @extract.add('relevant_gmfs')
 def extract_relevant_gmfs(dstore, what):
     qdict = parse(what)

@@ -44,8 +44,9 @@ class ShakemapParsersTestCase(unittest.TestCase):
         _rup, _rupdic, err = get_rup_dic(
             {'usgs_id': 'usp0001cc', 'approach': 'use_shakemap_from_usgs'},
             User(level=2, testdir=''), use_shakemap=True)
-        self.assertIn('Unable to download from https://earthquake.usgs.gov/fdsnws/'
-                      'event/1/query?eventid=usp0001cc&', err['error_msg'])
+        self.assertIn(
+            'Unable to download from https://earthquake.usgs.gov/fdsnws/'
+            'event/1/query?eventid=usp0001cc&', err['error_msg'])
 
     def test_2(self):
         _rup, dic, _err = get_rup_dic(
@@ -68,13 +69,13 @@ class ShakemapParsersTestCase(unittest.TestCase):
         self.assertEqual(dic['rake'], 0.0)
         self.assertEqual(dic['local_timestamp'], '2021-08-14 08:29:08-04:00')
         self.assertEqual(dic['time_event'], 'transit')
-        self.assertEqual(dic['require_dip_strike'], True)
         self.assertEqual(dic['pga_map_png'], None)
         self.assertEqual(dic['mmi_map_png'], None)
         self.assertEqual(dic['usgs_id'], 'us6000f65h')
         self.assertEqual(dic['rupture_file'], None)
         self.assertEqual(dic['station_data_file_from_usgs'], True)
         self.assertEqual(dic['station_data_issue'], 'No stations were found')
+        self.assertIsNotNone(dic['mmi_file'])
 
     def test_3b(self):
         rup, _dic, _err = get_rup_dic(
@@ -88,6 +89,14 @@ class ShakemapParsersTestCase(unittest.TestCase):
             user=user, use_shakemap=True)
         self.assertIn('Unable to retrieve rupture geometries', err['error_msg'])
 
+    def test_3d(self):
+        # TODO: make it possible to convert this kind of geometries
+        _rup, dic, _err = get_rup_dic(
+            {'usgs_id': 'us6000jllz', 'approach': 'use_finite_rup_from_usgs'},
+            user=user, use_shakemap=True)
+        self.assertIn('Unable to convert the rupture from the USGS format',
+                      dic['rupture_issue'])
+
     def test_4(self):
         # point_rup
         _rup, dic, _err = get_rup_dic(
@@ -96,7 +105,6 @@ class ShakemapParsersTestCase(unittest.TestCase):
         self.assertEqual(dic['lon'], 37.0143)
         self.assertEqual(dic['lat'], 37.2256)
         self.assertEqual(dic['dep'], 10.)
-        self.assertEqual(dic['require_dip_strike'], True)
 
     def test_5(self):
         # 12 vertices instead of 4 in rupture.json
@@ -104,23 +112,23 @@ class ShakemapParsersTestCase(unittest.TestCase):
             {'usgs_id': 'us20002926', 'approach': 'use_shakemap_from_usgs'},
             user=user, use_shakemap=True)
         self.assertIsNone(rup)
-        self.assertEqual(dic['require_dip_strike'], True)
-        self.assertEqual(dic['rupture_issue'],
-                         'Unable to convert the rupture from the USGS format')
+        rupture_issue = ('Unable to convert the rupture from the USGS format: '
+                         'at least one surface is not rectangular')
+        self.assertEqual(dic['rupture_issue'], rupture_issue)
 
     def test_6(self):
         _rup, dic, _err = get_rup_dic(
             {'usgs_id': 'usp0001ccb', 'approach': 'use_pnt_rup_from_usgs'},
             user=user, use_shakemap=True)
         self.assertEqual(dic['mag'], 6.7)
-        self.assertEqual(dic['require_dip_strike'], True)
         self.assertEqual(dic['station_data_issue'],
                          '3 stations were found, but none of them are seismic')
 
     def test_7(self):
-        dic_in = {'usgs_id': 'us6000jllz', 'lon': None, 'lat': None, 'dep': None,
-                  'mag': None, 'msr': '', 'aspect_ratio': 2, 'rake': None,
-                  'dip': None, 'strike': None, 'approach': 'build_rup_from_usgs'}
+        dic_in = {
+            'usgs_id': 'us6000jllz', 'lon': None, 'lat': None, 'dep': None,
+            'mag': None, 'msr': '', 'aspect_ratio': 2, 'rake': None,
+            'dip': None, 'strike': None, 'approach': 'build_rup_from_usgs'}
         _rup, dic, _err = get_rup_dic(dic_in, user=user, use_shakemap=True)
         self.assertEqual(
             dic['nodal_planes'],
@@ -128,11 +136,12 @@ class ShakemapParsersTestCase(unittest.TestCase):
              'NP2': {'dip': 89.18, 'rake': -1.29, 'strike': 227.61}})
 
     def test_7b(self):
-        # Case reading nodal planes first from the moment-tensor (not found) then
-        # falling back to reading them from the focal-mechanism
-        dic_in = {'usgs_id': 'usp0001ccb', 'lon': None, 'lat': None, 'dep': None,
-                  'mag': None, 'msr': '', 'aspect_ratio': 2, 'rake': None,
-                  'dip': None, 'strike': None, 'approach': 'build_rup_from_usgs'}
+        # Case reading nodal planes first from the moment-tensor (not found)
+        # then falling back to reading them from the focal-mechanism
+        dic_in = {
+            'usgs_id': 'usp0001ccb', 'lon': None, 'lat': None, 'dep': None,
+            'mag': None, 'msr': '', 'aspect_ratio': 2, 'rake': None,
+            'dip': None, 'strike': None, 'approach': 'build_rup_from_usgs'}
         _rup, dic, _err = get_rup_dic(dic_in, user=user, use_shakemap=True)
         self.assertEqual(
             dic['nodal_planes'],
@@ -149,10 +158,11 @@ class ShakemapParsersTestCase(unittest.TestCase):
         self.assertAlmostEqual(rup.surface.width, 0.0070800)
 
     def test_9(self):
-        dic_in = {'usgs_id': 'us6000jllz', 'lon': 37.0143, 'lat': 37.2256, 'dep': 10,
-                  'mag': 7.8, 'msr': 'WC1994', 'aspect_ratio': 3,
-                  'rake': -179.18, 'dip': 88.71, 'strike': 317.63,
-                  'approach': 'build_rup_from_usgs'}
+        dic_in = {
+            'usgs_id': 'us6000jllz', 'lon': 37.0143, 'lat': 37.2256, 'dep': 10,
+            'mag': 7.8, 'msr': 'WC1994', 'aspect_ratio': 3,
+            'rake': -179.18, 'dip': 88.71, 'strike': 317.63,
+            'approach': 'build_rup_from_usgs'}
         _rup, dic, _err = get_rup_dic(dic_in, user=user, use_shakemap=True)
         self.assertEqual(dic['dep'], 10)
         self.assertEqual(dic['dip'], 88.71)
@@ -162,7 +172,6 @@ class ShakemapParsersTestCase(unittest.TestCase):
         self.assertEqual(dic['msr'], 'WC1994')
         self.assertEqual(dic['rake'], -179.18)
         self.assertEqual(dic['strike'], 317.63)
-        self.assertEqual(dic['require_dip_strike'], True)
         self.assertEqual(dic['aspect_ratio'], 3)
 
     def test_10(self):

@@ -469,6 +469,8 @@ function capitalizeFirstLetter(val) {
             'running': 'Building rupture...'}
     }
 
+    var impact_form_defaults = {};
+
     function require_usgs_id() {
         approach_selector = $('input[name="impact_approach"]');
         if (approach_selector.length > 0) {
@@ -500,6 +502,29 @@ function capitalizeFirstLetter(val) {
         const approach = get_selected_approach();
         const btn_txt = retrieve_data_btn_txt_map[approach][state];
         $('#submit_impact_get_rupture').text(btn_txt);
+    }
+
+    function reset_rupture_form_inputs() {
+        var rupture_form_fields = [
+            'lon', 'lat', 'dep', 'mag', 'aspect_ratio', 'rake', 'dip', 'strike']
+        for (field of rupture_form_fields) {
+            $('input#' + field).val(impact_form_defaults[field]);
+        }
+        // nodal planes are re-populated when loading rupture data; msrs are populated only once
+        $('select#nodal_plane').empty();
+        $('select#msr').val('WC1994');
+        $('#rupture-map').hide();
+    }
+
+    function reset_impact_forms() {
+        for (field in impact_form_defaults) {
+            var input = $('input#' + field);
+            if (input.length) {
+                input.val(impact_form_defaults[field]);
+            }
+        }
+        $('#rupture-map').hide();
+        $('#shakemap-image-row').hide();
     }
 
     /* classic event management */
@@ -610,6 +635,20 @@ function capitalizeFirstLetter(val) {
             });
 
 
+            // IMPACT
+
+            $.ajax({
+                url:  "/v1/get_impact_form_defaults",
+                method: "GET",
+                dataType: "json",
+                success: function(data) {
+                    impact_form_defaults = data;
+                },
+                error: function(xhr, status, error) {
+                    console.error("Error loading impact_from_defaults:", error);
+                }
+            });
+
             function toggleRunCalcBtnState() {
                 var lonValue = $('#lon').val();
                 if (typeof lonValue !== 'undefined') {
@@ -619,9 +658,14 @@ function capitalizeFirstLetter(val) {
             }
             toggleRunCalcBtnState();
 
+            $('input[name="usgs_id"]').on('input', function() {
+                reset_rupture_form_inputs();
+            });
+
             $('input[name="impact_approach"]').change(function () {
                 const selected_approach = $(this).val();
                 set_retrieve_data_btn_txt('initial');
+                reset_impact_forms();
                 if (approaches_requiring_usgs_id.includes(selected_approach)) {
                     $('#rupture_from_usgs_grp').removeClass('hidden');
                     $('#usgs_id_grp').removeClass('hidden');
@@ -721,7 +765,6 @@ function capitalizeFirstLetter(val) {
                     $('#strike').val('strike' in data ? data.strike : '0');
                     $('#local_timestamp').val(data.local_timestamp);
                     $('#time_event').val(data.time_event);
-                    $('#require_dip_strike').val(data.require_dip_strike);
                     // NOTE: due to security restrictions in web browsers, it is not possible to programmatically
                     //       set a specific file in an HTML file input element using JavaScript or jQuery,
                     //       therefore we can not pre-populate the rupture_file_input with the rupture_file
@@ -729,8 +772,8 @@ function capitalizeFirstLetter(val) {
                     $('#rupture_from_usgs').val(data.rupture_from_usgs);
                     $('#rupture_from_usgs_loaded').val(data.rupture_from_usgs ? 'Loaded' : 'N.A.');
                     var conversion_issues = '';
-                    if ('error' in data) {  // data.error comes from the rupture dictionary and refers to rupture importing/converting
-                        conversion_issues += '<p>' + data.error + '</p>';
+                    if ('rupture_issue' in data) {
+                        conversion_issues += '<p>' + data.rupture_issue + '</p>';
                         $('#rupture_from_usgs_loaded').val('N.A. (conversion issue)');
                     }
                     // NOTE: these are stations downloaded from the USGS and not those uploaded by the user
@@ -747,15 +790,6 @@ function capitalizeFirstLetter(val) {
                     if ($('#rupture_file_input')[0].files.length == 1) {
                         $('#dip').prop('disabled', true);
                         $('#strike').prop('disabled', true);
-                    }
-                    else if (data.require_dip_strike) {
-                        $('#dip').prop('disabled', false);
-                        $('#strike').prop('disabled', false);
-                    } else {
-                        $('#dip').prop('disabled', true);
-                        $('#strike').prop('disabled', true);
-                        $('#dip').val('');
-                        $('#strike').val('');
                     }
                     if ('nodal_planes' in data) {
                         const nodal_planes = data.nodal_planes;
@@ -893,7 +927,6 @@ function capitalizeFirstLetter(val) {
                 formData.append('rake', $("#rake").val());
                 formData.append('dip', $("#dip").val());
                 formData.append('strike', $("#strike").val());
-                formData.append('require_dip_strike', $("#require_dip_strike").val());
                 formData.append('time_event', $("#time_event").val());
                 formData.append('maximum_distance', $("#maximum_distance").val());
                 formData.append('mosaic_model', $('#mosaic_model').val());
