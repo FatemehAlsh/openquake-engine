@@ -420,6 +420,7 @@ def get_mu_tau_phi(target_imt, gsim, mean_stds,
     msg = ("GSIM: %s, IMT: %s, Nominal bias mean: %.3f, Nominal bias stddev: %.3f"
            % (gsim.gmpe if hasattr(gsim, 'gmpe') else gsim,
               target_imt, nominal_bias_mean, nominal_bias_stddev))
+    print(msg)
 
     # Predicted mean at the target sites, from GSIM
     mu_Y = mean_stds[0, 0][:, None]
