@@ -554,6 +554,7 @@ class ContextMaker(object):
     deltagetter = None
     fewsites = False
     tom = None
+    cluster = None  # set in PmapMaker
 
     def __init__(self, trt, gsims, oq, monitor=Monitor(), extraparams=()):
         self.trt = trt
@@ -1191,9 +1192,9 @@ class ContextMaker(object):
         rup_indep = not rup_mutex
         sids = numpy.unique(ctxs[0].sids)
         pmap = MapArray(sids, size(self.imtls), len(self.gsims)).fill(rup_indep)
-        ptom = PoissonTOM(self.investigation_time)
+        self.tom = tom or PoissonTOM(self.investigation_time)
         for ctx in ctxs:
-            self.update(pmap, ctx, tom or ptom, rup_mutex)
+            self.update(pmap, ctx, rup_mutex)
         return ~pmap if rup_indep else pmap
 
     def ratesNLG(self, srcgroup, sitecol):
@@ -1232,7 +1233,6 @@ class ContextMaker(object):
         N = sum(len(ctx) for ctx in ctxs)
         M = len(self.imts)
         G = len(self.gsims)
-        out = numpy.zeros((4, G, M, N))
         if all(isinstance(ctx, numpy.recarray) for ctx in ctxs):
             # contexts already vectorized
             recarrays = ctxs
@@ -1242,6 +1242,7 @@ class ContextMaker(object):
             recarr = numpy.concatenate(
                 recarrays, dtype=recarrays[0].dtype).view(numpy.recarray)
             recarrays = split_array(recarr, U32(numpy.round(recarr.mag*100)))
+        out = numpy.empty((4, G, M, N))
         for g, gsim in enumerate(self.gsims):
             out[:, g] = self.get_4MN(recarrays, gsim)
         return out
@@ -1298,7 +1299,7 @@ class ContextMaker(object):
         eps = .01 * EPS if src.code == 'S' else EPS  # needed for EUR
         src.dt = 0
         if src.nsites == 0:  # was discarded by the prefiltering
-            return eps, 0
+            return (0, 0) if src.code in b'pP' else (eps, 0)
         sites = srcfilter.get_close_sites(src)
         if sites is None:
             # may happen for CollapsedPointSources
@@ -1309,15 +1310,14 @@ class ContextMaker(object):
         src.dt = time.time() - t0
         if not ctxs:
             return eps, 0
-        esites = (sum(len(ctx) for ctx in ctxs) * src.num_ruptures /
-                  self.num_rups * multiplier)  # num_rups from get_ctx_iter
-        weight = src.dt * src.num_ruptures / self.num_rups
-        if src.code == b'S':  # increase weight in the EUR model
-            weight *= 1.5
-        elif src.code == b'N':  # increase weight in MEX and SAM
+        lenctx = sum(len(ctx) for ctx in ctxs)
+        esites = lenctx * src.num_ruptures / self.num_rups * multiplier
+        # NB: num_rups is set by get_ctx_iter
+        weight = src.dt * src.num_ruptures / self.num_rups * src.nsites ** .5
+        if src.code in b'NX':  # increase weight
             weight *= 5.
-        elif src.code == b'N':  # increase weight in USA
-            weight *= 2.
+        elif src.code == b'S':  # increase for USA, decrease for EUR
+            weight *= 3
         return max(weight, eps), int(esites)
 
     def set_weight(self, sources, srcfilter, multiplier=1):
@@ -1921,6 +1921,7 @@ def read_cmakers(dstore, csm=None):
         oq.af = None
     if csm is None:
         csm = dstore['_csm']
+    if not hasattr(csm, 'full_lt'):
         csm.full_lt = dstore['full_lt'].init()
     cmakers = get_cmakers(csm.src_groups, csm.full_lt, oq)
     if 'delta_rates' in dstore:  # aftershock

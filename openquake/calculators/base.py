@@ -731,9 +731,10 @@ class HazardCalculator(BaseCalculator):
                 self.save_crmodel()
             if oq.impact and 'mmi' in oq.inputs:
                 logging.info('Computing MMI-aggregated values')
-                if mmi_values := self.assetcol.get_mmi_values(
-                        oq.aggregate_by, oq.inputs['mmi']):
-                    self.datastore['mmi_tags'] = mmi_values
+                mmi_df = self.assetcol.get_mmi_values(
+                    oq.aggregate_by, oq.inputs['mmi'])
+                if len(mmi_df):
+                    self.datastore.hdf5.create_df('mmi_tags', mmi_df)
 
     def pre_execute_from_parent(self):
         """
@@ -1746,8 +1747,6 @@ def expose_outputs(dstore, owner=USER, status='complete'):
     calcmode = oq.calculation_mode
     dskeys = set(dstore) & exportable  # exportable datastore keys
     dskeys.add('fullreport')
-    if 'avg_gmf' in dskeys:
-        dskeys.remove('avg_gmf')  # hide
     rlzs = dstore['full_lt'].rlzs
     if len(rlzs) > 1:
         dskeys.add('realizations')

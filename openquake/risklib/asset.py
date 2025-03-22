@@ -19,7 +19,6 @@ import operator
 import itertools
 import logging
 import time
-import csv
 import os
 
 import numpy
@@ -48,17 +47,16 @@ VAL_FIELDS = {'structural', 'nonstructural', 'contents',
               'business_interruption'}
 
 
-def to_mmi(value, MMIs=('I', 'II', 'III', 'IV', 'V', 'VI', 'VII',
-                        'VIII', 'IX', 'X')):
+def to_mmi(value):
     """
     :param value: float in the range 1..10
-    :returns: string "I" .. "X" representing a MMI
+    :returns: an MMI value in the range 1..10
     """
     if value >= 10.5:
         raise ValueError(f'{value} is too large to be an MMI')
     elif value < 0.5:
         raise ValueError(f'{value} is too small to be an MMI')
-    return MMIs[round(value) - 1]
+    return round(value) - 1
 
 
 def add_dupl_fields(df, oqfields):
@@ -495,7 +493,7 @@ class AssetCollection(object):
         :param mmi_file:
             shapefile containing MMI geometries and values
         :returns:
-            a dictionary MMI -> array with the value fields
+            a DataFrame with columns number, structural, ..., mmi
         """
         out = {}
         with fiona.open(f'zip://{mmi_file}!mi.shp') as f:
@@ -506,11 +504,23 @@ class AssetCollection(object):
                 values = self.get_agg_values(aggregate_by, geom)
                 if values['number'].any():
                     if mmi not in out:
-                        out[mmi] = values
+                        out[mmi] = values[:-1]  # discard total
                     else:
                         for lt in values.dtype.names:
-                            out[mmi][lt] += values[lt]
-        return out
+                            out[mmi][lt] += values[lt][:-1]
+        _aggids, aggtags = self.build_aggids(aggregate_by)
+        aggtags = numpy.array(aggtags)  # shape (K+1, T)
+        dfs = []
+        for mmi in out:
+            dic = {key: aggtags[:, k] for k, key in enumerate(aggregate_by[0])}
+            dic.update({col: out[mmi][col] for col in out[mmi].dtype.names})
+            df = pandas.DataFrame(dic)
+            df['mmi'] = mmi
+            dfs.append(df)
+        if not dfs:
+            return ()
+        df = pandas.concat(dfs)
+        return df[df.number > 0]
 
     # not used yet
     def agg_by_site(self):
@@ -1144,31 +1154,26 @@ class Exposure(object):
             oqfields[csvfield].add(oqfield)
         other_fields = get_other_fields(self.fieldmap)
         for fname in self.datafiles:
-            with open(fname, encoding='utf-8-sig', errors=errors) as f:
-                try:
-                    fields = next(csv.reader(f))
-                except UnicodeDecodeError:
-                    msg = ("%s is not encoded as UTF-8\ntry oq shell "
-                           "and then o.fix_latin1('%s')\nor set "
-                           "ignore_encoding_errors=true" % (fname, fname))
-                    raise RuntimeError(msg)
-                for inp in other_fields:
-                    if inp not in fields:
-                        raise InvalidFile('%s: missing field %s, declared in '
-                                          'the XML file' % (fname, inp))
-                header = set()
-                for f in fields:
-                    header.update(oqfields.get(f, [f]))
-                for field in fields:
-                    if field not in strfields:
-                        floatfields.add(field)
-                missing = expected_header - header - {'exposure'}
-                if len(header) < len(fields):
-                    raise InvalidFile(
-                        '%s: expected %d fields in %s, got %d' %
-                        (fname, len(fields), header, len(header)))
-                elif missing:
-                    raise InvalidFile('%s: missing %s' % (fname, missing))
+            # read only the header
+            fields = pandas.read_csv(
+                fname, nrows=1, encoding='utf-8-sig').columns
+            for inp in other_fields:
+                if inp not in fields:
+                    raise InvalidFile('%s: missing field %s, declared in '
+                                      'the XML file' % (fname, inp))
+            header = set()
+            for f in fields:
+                header.update(oqfields.get(f, [f]))
+            for field in fields:
+                if field not in strfields:
+                    floatfields.add(field)
+            missing = expected_header - header - {'exposure'}
+            if len(header) < len(fields):
+                raise InvalidFile(
+                    '%s: expected %d fields in %s, got %d' %
+                    (fname, len(fields), header, len(header)))
+            elif missing:
+                raise InvalidFile('%s: missing %s' % (fname, missing))
         conv = {'lon': float, 'lat': float, 'number': float, 'area': float,
                 'residents': float, 'retrofitted': float, 'ideductible': float,
                 'occupants_day': float, 'occupants_night': float,
