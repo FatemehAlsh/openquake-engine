@@ -1233,7 +1233,6 @@ class ContextMaker(object):
         N = sum(len(ctx) for ctx in ctxs)
         M = len(self.imts)
         G = len(self.gsims)
-        out = numpy.zeros((4, G, M, N))
         if all(isinstance(ctx, numpy.recarray) for ctx in ctxs):
             # contexts already vectorized
             recarrays = ctxs
@@ -1243,6 +1242,7 @@ class ContextMaker(object):
             recarr = numpy.concatenate(
                 recarrays, dtype=recarrays[0].dtype).view(numpy.recarray)
             recarrays = split_array(recarr, U32(numpy.round(recarr.mag*100)))
+        out = numpy.empty((4, G, M, N))
         for g, gsim in enumerate(self.gsims):
             out[:, g] = self.get_4MN(recarrays, gsim)
         return out
@@ -1310,13 +1310,14 @@ class ContextMaker(object):
         src.dt = time.time() - t0
         if not ctxs:
             return eps, 0
-        esites = (sum(len(ctx) for ctx in ctxs) * src.num_ruptures /
-                  self.num_rups * multiplier)  # num_rups from get_ctx_iter
-        weight = src.dt * src.num_ruptures / self.num_rups
-        if src.code == b'S':  # improves EUR and USA
-            weight *= 2
-        elif src.code == b'N':  # increase weight in MEX and SAM
+        lenctx = sum(len(ctx) for ctx in ctxs)
+        esites = lenctx * src.num_ruptures / self.num_rups * multiplier
+        # NB: num_rups is set by get_ctx_iter
+        weight = src.dt * src.num_ruptures / self.num_rups * src.nsites ** .5
+        if src.code in b'NX':  # increase weight
             weight *= 5.
+        elif src.code == b'S':  # increase for USA, decrease for EUR
+            weight *= 3
         return max(weight, eps), int(esites)
 
     def set_weight(self, sources, srcfilter, multiplier=1):
