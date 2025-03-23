@@ -434,8 +434,8 @@ def get_mu_tau_phi(target_imt, gsim, mean_stds,
     # (nsites, nstations) and (nstations, nsites) respectively
     cov_WY_WD = compute_cov(target_sitecol, station_sitecol,
                             [target_imt], r.conditioning_imts, phi_Y_diag, r.phi_D_diag)
-    cov_WD_WY = compute_cov(station_sitecol, target_sitecol,
-                            r.conditioning_imts, [target_imt], r.phi_D_diag, phi_Y_diag)
+    # cov_WD_WY = compute_cov(station_sitecol, target_sitecol,
+    #                         r.conditioning_imts, [target_imt], r.phi_D_diag, phi_Y_diag)
 
     # Compute the regression coefficient matrix [cov_WY_WD × cov_WD_WD_inv]
     RC = cov_WY_WD @ r.cov_WD_WD_inv  # shape (nsites, nstations)
@@ -449,31 +449,31 @@ def get_mu_tau_phi(target_imt, gsim, mean_stds,
     # at the target sites; shape (nsites, 1)
     mu_Y_yD = mu_Y + tau_Y @ mu_HD_yD[0, None] + RC @ (r.zeta_D - mu_BD_yD)
 
-    # Compute the within-event covariance matrix for the
-    # target sites (apriori) (nsites, nsites)
-    cov_WY_WY = compute_cov(target_sitecol, target_sitecol,
-                            [target_imt], [target_imt], phi_Y_diag, phi_Y_diag)
+    # # Compute the within-event covariance matrix for the
+    # # target sites (apriori) (nsites, nsites)
+    # cov_WY_WY = compute_cov(target_sitecol, target_sitecol,
+    #                         [target_imt], [target_imt], phi_Y_diag, phi_Y_diag)
 
-    # Both conditioned covariance matrices can contain extremely
-    # small negative values due to limitations of floating point
-    # operations (~ -10^-17 to -10^-15), these are clipped to zero
+    # # Both conditioned covariance matrices can contain extremely
+    # # small negative values due to limitations of floating point
+    # # operations (~ -10^-17 to -10^-15), these are clipped to zero
 
-    # Compute the conditioned within-event covariance matrix
-    # for the target sites clipped to zero, shape (nsites, nsites)
-    cov_WY_WY_wD = (cov_WY_WY - RC @ cov_WD_WY).clip(min=0)
+    # # Compute the conditioned within-event covariance matrix
+    # # for the target sites clipped to zero, shape (nsites, nsites)
+    # cov_WY_WY_wD = (cov_WY_WY - RC @ cov_WD_WY).clip(min=0)
 
-    # Compute the scaling matrix "C" for the conditioned between-event
-    # covariance matrix
-    if r.native_data_available:
-        C = tau_Y - RC @ r.T_D
-    else:
-        zeros = numpy.zeros((len(target_sitecol), len(r.conditioning_imts)))
-        C = numpy.block([tau_Y, zeros]) - RC @ r.T_D
+    # # Compute the scaling matrix "C" for the conditioned between-event
+    # # covariance matrix
+    # if r.native_data_available:
+    #     C = tau_Y - RC @ r.T_D
+    # else:
+    #     zeros = numpy.zeros((len(target_sitecol), len(r.conditioning_imts)))
+    #     C = numpy.block([tau_Y, zeros]) - RC @ r.T_D
 
-    # Compute the conditioned between-event covariance matrix
-    # for the target sites clipped to zero, shape (nsites, nsites)
-    cov_BY_BY_yD = numpy.linalg.multi_dot([C, cov_HD_HD_yD, C.T]).clip(min=0)
-    return {(r.g, r.m): (mu_Y_yD, cov_WY_WY_wD, cov_BY_BY_yD, msg)}
+    # # Compute the conditioned between-event covariance matrix
+    # # for the target sites clipped to zero, shape (nsites, nsites)
+    # cov_BY_BY_yD = numpy.linalg.multi_dot([C, cov_HD_HD_yD, C.T]).clip(min=0)
+    return {(r.g, r.m): (mu_Y_yD, None, None, msg)}
 
 
 def get_me_ta_ph(cmaker, sdata, observed_imts, target_imts,
@@ -483,8 +483,8 @@ def get_me_ta_ph(cmaker, sdata, observed_imts, target_imts,
     M = len(target_imts)
     N = mean_stds_Y.shape[-1]
     me = numpy.zeros((G, M, N, 1))
-    ta = numpy.zeros((G, M, N, N))
-    ph = numpy.zeros((G, M, N, N))
+    ta = numpy.zeros((G, M, 1))
+    ph = numpy.zeros((G, M, 1))
     smap = parallel.Starmap(get_mu_tau_phi, h5=h5)
     for g, gsim in enumerate(cmaker.gsims):
         if gsim.DEFINED_FOR_STANDARD_DEVIATION_TYPES == {StdDev.TOTAL}:
